@@ -17,6 +17,7 @@ import { extname } from "path";
 const REF = {
   cows: "https://highlandminicows.com/available-cattle/",
   donkeys: "https://highlandminicows.com/available-donkeys/",
+  testimonials: "https://highlandminicows.com/testimonials/",
 };
 
 const required = [
@@ -161,6 +162,75 @@ async function fetchHtml(url) {
   return res.text();
 }
 
+function cleanListingText(raw) {
+  return raw
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n+/g, "\n")
+    .trim();
+}
+
+function parseDescription(text, name, color) {
+  let description = "";
+
+  if (color) {
+    const colorIdx = text.toLowerCase().indexOf(color.toLowerCase());
+    if (colorIdx >= 0) {
+      description = text.slice(colorIdx + color.length).trim();
+    }
+  }
+
+  if (!description) {
+    const afterColor = text.split(/Color\s*:/i)[1];
+    if (afterColor) {
+      description = afterColor.replace(/^[^\n]*?(?=[A-Z])/, "").trim();
+      // If still starts with color words, drop first clause before name
+      if (name && description.includes(name)) {
+        description = description.slice(description.indexOf(name)).trim();
+      }
+    }
+  }
+
+  if (!description) {
+    description = text
+      .replace(name, "")
+      .replace(/Price\s*:[^\n]*/gi, "")
+      .replace(/Status\s*:[^\n]*/gi, "")
+      .replace(/Gender\s*:[^\n]*/gi, "")
+      .replace(/Age\s*:[^\n]*/gi, "")
+      .replace(/Color\s*:[^\n]*/gi, "")
+      .trim();
+  }
+
+  if (name && description.includes(name)) {
+    const at = description.indexOf(name);
+    // Prefer description that begins at the animal name sentence
+    if (at >= 0 && at < 120) description = description.slice(at).trim();
+  }
+
+  description = description
+    .split(/\n/)
+    .filter((line) => !/chatgpt|conversation-turn|message-timestamp|group\/message/i.test(line))
+    .join(" ")
+    .replace(/\s*Inquire\s*$/i, "")
+    // Stop if another listing's fact block leaked in
+    .replace(/\s+[A-Z][\w'&. ]{1,40}Status:\s*Available.*/i, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*—\s*/g, ": ")
+    .replace(/–/g, "-")
+    .trim()
+    .slice(0, 5000);
+
+  return description;
+}
+
+function parseAge(raw) {
+  if (!raw) return null;
+  const months = raw.match(/^(\d+\s*Months?)\b/i);
+  if (months) return months[1];
+  return raw.replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
 function parseListings(html, species) {
   const $ = cheerio.load(html);
   const animals = [];
@@ -170,60 +240,38 @@ function parseListings(html, species) {
     if (!name || name.length > 60) return;
     if (/quick links|testimonials|contact/i.test(name)) return;
 
-    // Climb to a container that also holds an image + price text
-    let node = $(el);
-    let container = null;
-    for (let i = 0; i < 8; i++) {
-      node = node.parent();
-      if (!node.length) break;
-      const text = node.text();
-      const hasPrice = /Price\s*:/i.test(text) || /\$\s*\d/.test(text);
-      const hasImg = node.find("img").toArray().some((img) => {
-        const src = $(img).attr("src") || "";
-        return isAnimalImage(src);
-      });
-      if (hasPrice && hasImg) {
-        container = node;
-        break;
-      }
-    }
-    if (!container) return;
+    // Prefer the Elementor text widget that owns this heading (avoids grid bleed).
+    const textWidget = $(el).closest(".elementor-widget-text-editor");
+    const textRoot = textWidget.length ? textWidget : $(el).parent();
+    const text = cleanListingText(textRoot.text());
+    if (!/Price\s*:/i.test(text) && !/\$\s*\d/.test(text)) return;
 
-    const text = container
-      .text()
-      .replace(/\u00a0/g, " ")
-      .replace(/[ \t]+/g, " ")
-      .replace(/\n+/g, "\n")
+    // Card container for the photo (sibling image in the same column/card).
+    let imageRoot = $(el).closest(".e-con.e-child, .e-con-full, .elementor-column");
+    if (!imageRoot.length) imageRoot = textRoot.parent();
+
+    const paragraphDesc = textRoot
+      .find("p")
+      .map((__, p) => $(p).text().replace(/\s+/g, " ").trim())
+      .get()
+      .filter((t) => t.length > 40 && !/^(Price|Status|Gender|Age|Color)\s*:/i.test(t))
+      .join("\n\n")
+      .replace(/\s*—\s*/g, ": ")
+      .replace(/–/g, "-")
       .trim();
 
-    // Description: after Color/Age block or after name
-    let description = "";
-    const afterColor = text.split(/Color\s*:[^\n]*/i)[1];
-    if (afterColor) {
-      description = afterColor.replace(/^\s*/, "").trim();
-    } else {
-      description = text
-        .replace(name, "")
-        .replace(/Price\s*:[^\n]*/gi, "")
-        .replace(/Status\s*:[^\n]*/gi, "")
-        .replace(/Gender\s*:[^\n]*/gi, "")
-        .replace(/Age\s*:[^\n]*/gi, "")
-        .replace(/Color\s*:[^\n]*/gi, "")
-        .trim();
-    }
-    // Strip noisy AI/chat artifacts if present
-    description = description
-      .split(/\n/)
-      .filter((line) => !/chatgpt|conversation-turn|message-timestamp/i.test(line))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 5000);
+    const statusRaw = field(text, "Status");
+    const genderRaw = field(text, "Gender");
+    const age = parseAge(field(text, "Age"));
+    const color = parseColor(text, name);
+    const priceText = field(text, "Price") || text;
+    const description =
+      paragraphDesc ||
+      parseDescription(text, name, color) ||
+      `${name} listing imported from reference catalog.`;
 
-    // Prefer the first nearby animal photo only (Elementor nesting can otherwise
-    // pull dozens of sibling listing images into one card).
     const images = [];
-    container.find("img").each((__, img) => {
+    imageRoot.find("img").each((__, img) => {
       if (images.length >= 1) return;
       const src = $(img).attr("src") || "";
       const srcset = $(img).attr("srcset") || "";
@@ -233,12 +281,23 @@ function parseListings(html, species) {
         alt: ($(img).attr("alt") || name).trim(),
       });
     });
-
-    const statusRaw = field(text, "Status");
-    const genderRaw = field(text, "Gender");
-    const age = field(text, "Age");
-    const color = parseColor(text, name);
-    const priceText = field(text, "Price") || text;
+    // Fallback: search a bit higher if card image wasn't found
+    if (!images.length) {
+      $(el)
+        .closest(".e-con, .elementor-element")
+        .parent()
+        .find("img")
+        .each((__, img) => {
+          if (images.length >= 1) return;
+          const src = $(img).attr("src") || "";
+          const srcset = $(img).attr("srcset") || "";
+          if (!isAnimalImage(src)) return;
+          images.push({
+            url: largestUploadUrl(src, srcset),
+            alt: ($(img).attr("alt") || name).trim(),
+          });
+        });
+    }
 
     animals.push({
       name,
@@ -250,18 +309,84 @@ function parseListings(html, species) {
       gender: parseGender(genderRaw || text, species),
       age_description: age,
       color,
-      description: description || `${name} listing imported from reference catalog.`,
+      description,
       images,
     });
   });
 
-  // Dedupe by slug
   const seen = new Set();
   return animals.filter((a) => {
     if (seen.has(a.slug)) return false;
     seen.add(a.slug);
     return true;
   });
+}
+
+function parseTestimonials(html) {
+  const $ = cheerio.load(html);
+  const items = [];
+  const seen = new Set();
+
+  $(".elementor-widget-image-box").each((_, el) => {
+    const name = $(el).find(".elementor-image-box-title").text().replace(/\s+/g, " ").trim();
+    if (!name || /quick links/i.test(name)) return;
+    const location = $(el)
+      .find(".elementor-image-box-description")
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
+
+    let body = "";
+    let node = $(el);
+    for (let depth = 0; depth < 6; depth++) {
+      node = node.parent();
+      if (!node.length) break;
+      const editors = node
+        .find(".elementor-widget-text-editor")
+        .map((__, w) => $(w).text().replace(/\s+/g, " ").trim())
+        .get()
+        .filter((t) => t.length > 60 && !/quick links|home available/i.test(t));
+      if (editors.length) {
+        body = editors.sort((a, b) => b.length - a.length)[0];
+        break;
+      }
+    }
+
+    if (!body) return;
+    body = body
+      .replace(new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*${location || ""}\\s*$`), "")
+      .replace(/\s*—\s*/g, ": ")
+      .replace(/–/g, "-")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const key = `${name}|${location}|${body.slice(0, 40)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    items.push({
+      customer_name: name,
+      location: location || null,
+      body,
+      display_order: items.length + 1,
+      published: true,
+      featured: items.length < 3,
+    });
+  });
+
+  return items;
+}
+
+async function importTestimonials(html) {
+  const items = parseTestimonials(html);
+  console.log(`Parsed ${items.length} testimonials`);
+  if (!items.length) return 0;
+
+  // Replace published catalog with imported set (idempotent by wiping then insert)
+  await supabase.from("testimonials").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+  const { error } = await supabase.from("testimonials").insert(items);
+  if (error) throw error;
+  return items.length;
 }
 
 async function uploadImage(imageUrl, folder, slug) {
@@ -417,14 +542,20 @@ hello@minicowfarm.com`,
 
 async function main() {
   console.log("Fetching reference catalogs…");
-  const [cowsHtml, donkeysHtml] = await Promise.all([
+  const [cowsHtml, donkeysHtml, testimonialsHtml] = await Promise.all([
     fetchHtml(REF.cows),
     fetchHtml(REF.donkeys),
+    fetchHtml(REF.testimonials),
   ]);
 
   const cows = parseListings(cowsHtml, "mini_cow");
   const donkeys = parseListings(donkeysHtml, "donkey");
   console.log(`Parsed ${cows.length} cows, ${donkeys.length} donkeys`);
+  if (cows[0]) {
+    console.log(
+      `Sample: ${cows[0].name} | age=${cows[0].age_description} | color=${cows[0].color} | desc=${cows[0].description.slice(0, 120)}…`,
+    );
+  }
 
   if (!cows.length && !donkeys.length) {
     console.error("No animals parsed, aborting.");
@@ -464,6 +595,16 @@ async function main() {
     }
   }
 
+  console.log("\n\nImporting testimonials");
+  let testimonialCount = 0;
+  try {
+    testimonialCount = await importTestimonials(testimonialsHtml);
+    console.log(` ok (${testimonialCount})`);
+  } catch (err) {
+    console.log(` FAIL ${err.message}`);
+    fail += 1;
+  }
+
   const { count: animalCount } = await supabase
     .from("animals")
     .select("*", { count: "exact", head: true });
@@ -471,8 +612,10 @@ async function main() {
     .from("animal_images")
     .select("*", { count: "exact", head: true });
 
-  console.log(`\n\nDone. imported_ok=${ok} failed=${fail} db_animals=${animalCount} db_images=${imageCount}`);
-  console.log("Idempotent: re-run updates by slug and replaces images.");
+  console.log(
+    `\n\nDone. imported_ok=${ok} failed=${fail} db_animals=${animalCount} db_images=${imageCount} testimonials=${testimonialCount}`,
+  );
+  console.log("Idempotent: re-run updates by slug and replaces images/testimonials.");
 }
 
 main().catch((err) => {

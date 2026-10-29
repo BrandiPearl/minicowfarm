@@ -18,8 +18,7 @@ export default async function TestimonialsPage() {
         <header className="mx-auto max-w-3xl text-center">
           <h1 className="font-display text-4xl font-bold text-forest md:text-5xl">Testimonials</h1>
           <p className="mt-4 text-ink/80">
-            Stories from buyers who worked with Mini Cow Farm. Placeholder/sample entries used for
-            local development are clearly generic until replaced with authentic approved reviews.
+            Stories from buyers who worked with us on their mini Highland cattle and donkey purchase.
           </p>
         </header>
         <div className="mt-12">

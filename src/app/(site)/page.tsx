@@ -120,18 +120,25 @@ export default async function HomePage() {
             age, prepared for homestead life, and backed by our published health policy. Every calf
             leaves our farm healthy, socialized, and ready for life on your homestead.
           </p>
-          <div className="mt-8 flex flex-row flex-wrap items-center justify-center gap-3 md:mt-10 md:gap-10">
+          <div className="mt-8 flex flex-row flex-wrap items-center justify-center gap-3 md:mt-10 md:gap-6">
             <Button
               href="/available-mini-cows"
               variant="primary"
-              className="min-w-0 flex-1 px-3 py-3 text-xs sm:flex-none sm:min-w-[180px] sm:text-sm"
+              className="min-w-0 flex-1 px-3 py-3 text-xs sm:flex-none sm:min-w-[160px] sm:text-sm"
             >
               Available Mini Cows
             </Button>
             <Button
-              href="/contact-us"
+              href="/available-donkeys"
               variant="secondary"
-              className="min-w-0 flex-1 px-3 py-3 text-xs sm:flex-none sm:min-w-[180px] sm:text-sm"
+              className="min-w-0 flex-1 px-3 py-3 text-xs sm:flex-none sm:min-w-[160px] sm:text-sm"
+            >
+              Available Donkeys
+            </Button>
+            <Button
+              href="/contact-us"
+              variant="outlineLight"
+              className="min-w-0 flex-1 px-3 py-3 text-xs sm:flex-none sm:min-w-[160px] sm:text-sm"
             >
               Talk To A Breeder
             </Button>
@@ -273,8 +280,7 @@ export default async function HomePage() {
               What Buyers Are Saying
             </h2>
             <p className="mt-4 text-sm text-muted">
-              Only authentic, business-approved testimonials are published. Demo entries are
-              labeled as samples until replaced.
+              Real feedback from buyers who brought a mini Highland home.
             </p>
           </div>
           <div className="mt-12">

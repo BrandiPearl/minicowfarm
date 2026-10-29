@@ -61,11 +61,10 @@ export function Footer({
       </div>
 
       <div className="border-t border-white/10">
-        <div className="container-site flex flex-col gap-2 py-5 text-center text-xs text-sage sm:flex-row sm:justify-between sm:text-left">
+        <div className="container-site py-5 text-center text-xs text-sage sm:text-left">
           <p>
             © {year} {brand.legalName}. All rights reserved.
           </p>
-          <p>Not affiliated with Highland Mini Cows.</p>
         </div>
       </div>
     </footer>
