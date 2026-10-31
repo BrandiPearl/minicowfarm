@@ -10,9 +10,13 @@ type InquiryFormProps = {
   source?: string;
 };
 
+type Status =
+  | { kind: "idle" }
+  | { kind: "error"; message: string }
+  | { kind: "success"; message: string };
+
 export function InquiryForm({ animalId, animalName, source = "inquiry" }: InquiryFormProps) {
-  const [serverMessage, setServerMessage] = useState<string | null>(null);
-  const [serverError, setServerError] = useState<string | null>(null);
+  const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -22,12 +26,11 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
     if (submittingRef.current) return;
     submittingRef.current = true;
 
-    setServerError(null);
-    setServerMessage(null);
+    const formEl = e.currentTarget;
+    setStatus({ kind: "idle" });
     setFieldErrors({});
     setIsSubmitting(true);
 
-    const formEl = e.currentTarget;
     const form = new FormData(formEl);
     const values = {
       name: String(form.get("name") || ""),
@@ -67,23 +70,29 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
       try {
         data = (await res.json()) as typeof data;
       } catch {
-        setServerMessage(null);
-        setServerError("Something went wrong. Please try again.");
+        setStatus({ kind: "error", message: "Something went wrong. Please try again." });
         return;
       }
 
       if (!res.ok || !data.ok) {
-        setServerMessage(null);
-        setServerError(data.error ?? "Something went wrong. Please try again.");
+        setStatus({
+          kind: "error",
+          message: data.error ?? "Something went wrong. Please try again.",
+        });
         return;
       }
 
-      setServerError(null);
-      setServerMessage(data.message ?? "Thanks, we received your inquiry and will respond soon.");
-      formEl.reset();
+      setStatus({
+        kind: "success",
+        message: data.message ?? "Thanks, we received your inquiry and will respond soon.",
+      });
+      try {
+        formEl.reset();
+      } catch {
+        // Event target can be detached after await; ignore reset failures.
+      }
     } catch {
-      setServerMessage(null);
-      setServerError("Network error. Please try again.");
+      setStatus({ kind: "error", message: "Network error. Please try again." });
     } finally {
       setIsSubmitting(false);
       submittingRef.current = false;
@@ -155,14 +164,14 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
         />
       </div>
 
-      {serverError ? (
+      {status.kind === "error" ? (
         <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
-          {serverError}
+          {status.message}
         </p>
       ) : null}
-      {!serverError && serverMessage ? (
+      {status.kind === "success" ? (
         <p className="rounded border border-forest/20 bg-sage/30 px-3 py-2 text-sm text-forest" role="status">
-          {serverMessage}
+          {status.message}
         </p>
       ) : null}
 
