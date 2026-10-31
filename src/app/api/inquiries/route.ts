@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { inquirySchema } from "@/lib/validations/inquiry";
 import { createClient } from "@/lib/supabase/server";
@@ -87,8 +88,10 @@ export async function POST(request: Request) {
     animalName = demoAnimals.find((a) => a.id === payload.animal_id)?.name ?? null;
   }
 
-  async function notify() {
-    await sendInquiryNotification({
+  function queueInBackground() {
+    // Don't block the HTTP response on FormSubmit/Resend — that was causing
+    // client timeouts that showed "Network error" even after a successful save.
+    const task = sendInquiryNotification({
       name: payload.name,
       email: payload.email,
       phone: payload.phone,
@@ -96,7 +99,18 @@ export async function POST(request: Request) {
       source: payload.source,
       animalId: payload.animal_id,
       animalName,
+    }).catch((error) => {
+      console.error("[email] background notify failed:", error);
     });
+
+    try {
+      // Prefer Worker waitUntil so email finishes after the response on Cloudflare.
+      getCloudflareContext().ctx.waitUntil(task);
+      return;
+    } catch {
+      // Local Next.js / Node: after() keeps the work alive past the response.
+      after(() => task);
+    }
   }
 
   if (!isSupabaseConfigured()) {
@@ -112,7 +126,7 @@ export async function POST(request: Request) {
       email: payload.email,
       animal_id: payload.animal_id,
     });
-    await notify();
+    queueInBackground();
     return NextResponse.json({
       ok: true,
       message:
@@ -131,8 +145,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Email is best-effort; inquiry is already saved.
-    await notify();
+    queueInBackground();
 
     return NextResponse.json({
       ok: true,

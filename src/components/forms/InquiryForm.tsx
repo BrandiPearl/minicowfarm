@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { inquirySchema } from "@/lib/validations/inquiry";
 import { Button } from "@/components/ui/Button";
 
@@ -15,15 +15,20 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
   const [serverError, setServerError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+
     setServerError(null);
     setServerMessage(null);
     setFieldErrors({});
     setIsSubmitting(true);
 
-    const form = new FormData(e.currentTarget);
+    const formEl = e.currentTarget;
+    const form = new FormData(formEl);
     const values = {
       name: String(form.get("name") || ""),
       email: String(form.get("email") || ""),
@@ -42,6 +47,7 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
       }
       setFieldErrors(next);
       setIsSubmitting(false);
+      submittingRef.current = false;
       return;
     }
 
@@ -56,17 +62,31 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
           source,
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string; message?: string };
+
+      let data: { ok?: boolean; error?: string; message?: string } = {};
+      try {
+        data = (await res.json()) as typeof data;
+      } catch {
+        setServerMessage(null);
+        setServerError("Something went wrong. Please try again.");
+        return;
+      }
+
       if (!res.ok || !data.ok) {
+        setServerMessage(null);
         setServerError(data.error ?? "Something went wrong. Please try again.");
         return;
       }
+
+      setServerError(null);
       setServerMessage(data.message ?? "Thanks, we received your inquiry and will respond soon.");
-      e.currentTarget.reset();
+      formEl.reset();
     } catch {
+      setServerMessage(null);
       setServerError("Network error. Please try again.");
     } finally {
       setIsSubmitting(false);
+      submittingRef.current = false;
     }
   }
 
@@ -85,7 +105,8 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
           id="name"
           name="name"
           required
-          className="w-full rounded-[2px] border border-border bg-white px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-forest-bright"
+          disabled={isSubmitting}
+          className="w-full rounded-[2px] border border-border bg-white px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-forest-bright disabled:opacity-60"
         />
         {fieldErrors.name ? <p className="mt-1 text-sm text-red-600">{fieldErrors.name}</p> : null}
       </div>
@@ -99,7 +120,8 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
           name="email"
           type="email"
           required
-          className="w-full rounded-[2px] border border-border bg-white px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-forest-bright"
+          disabled={isSubmitting}
+          className="w-full rounded-[2px] border border-border bg-white px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-forest-bright disabled:opacity-60"
         />
         {fieldErrors.email ? <p className="mt-1 text-sm text-red-600">{fieldErrors.email}</p> : null}
       </div>
@@ -113,7 +135,8 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
           name="phone"
           type="tel"
           required
-          className="w-full rounded-[2px] border border-border bg-white px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-forest-bright"
+          disabled={isSubmitting}
+          className="w-full rounded-[2px] border border-border bg-white px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-forest-bright disabled:opacity-60"
         />
         {fieldErrors.phone ? <p className="mt-1 text-sm text-red-600">{fieldErrors.phone}</p> : null}
       </div>
@@ -126,8 +149,9 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
           id="message"
           name="message"
           rows={5}
+          disabled={isSubmitting}
           defaultValue={animalName ? `I'm interested in ${animalName}.` : ""}
-          className="w-full rounded-[2px] border border-border bg-white px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-forest-bright"
+          className="w-full rounded-[2px] border border-border bg-white px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-forest-bright disabled:opacity-60"
         />
       </div>
 
@@ -136,7 +160,7 @@ export function InquiryForm({ animalId, animalName, source = "inquiry" }: Inquir
           {serverError}
         </p>
       ) : null}
-      {serverMessage ? (
+      {!serverError && serverMessage ? (
         <p className="rounded border border-forest/20 bg-sage/30 px-3 py-2 text-sm text-forest" role="status">
           {serverMessage}
         </p>
