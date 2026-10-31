@@ -4,6 +4,8 @@ import { inquirySchema } from "@/lib/validations/inquiry";
 import { createClient } from "@/lib/supabase/server";
 import { hashIp, rateLimit } from "@/lib/rate-limit";
 import { demoAnimals } from "@/lib/data/demo";
+import { sendInquiryNotification } from "@/lib/email";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const bodySchema = inquirySchema.extend({
   source: z.string().trim().max(60).optional(),
@@ -68,6 +70,35 @@ export async function POST(request: Request) {
     status: "new" as const,
   };
 
+  let animalName: string | null = null;
+  if (payload.animal_id && isSupabaseConfigured()) {
+    try {
+      const admin = createAdminClient();
+      const { data: animal } = await admin
+        .from("animals")
+        .select("name")
+        .eq("id", payload.animal_id)
+        .maybeSingle();
+      animalName = animal?.name ?? null;
+    } catch {
+      animalName = null;
+    }
+  } else if (payload.animal_id) {
+    animalName = demoAnimals.find((a) => a.id === payload.animal_id)?.name ?? null;
+  }
+
+  async function notify() {
+    await sendInquiryNotification({
+      name: payload.name,
+      email: payload.email,
+      phone: payload.phone,
+      message: payload.message,
+      source: payload.source,
+      animalId: payload.animal_id,
+      animalName,
+    });
+  }
+
   if (!isSupabaseConfigured()) {
     // Local/demo mode: accept without persistence so UI can be tested.
     const animalOk =
@@ -81,6 +112,7 @@ export async function POST(request: Request) {
       email: payload.email,
       animal_id: payload.animal_id,
     });
+    await notify();
     return NextResponse.json({
       ok: true,
       message:
@@ -98,6 +130,9 @@ export async function POST(request: Request) {
         { status: 500 },
       );
     }
+
+    // Email is best-effort; inquiry is already saved.
+    await notify();
 
     return NextResponse.json({
       ok: true,

@@ -7,7 +7,7 @@ insert into public.site_settings (
 ) values (
   '00000000-0000-4000-8000-000000000001',
   'Mini Cow Farm',
-  'hello@minicowfarm.com',
+  'lynnjames09090@gmail.com',
   '+1 (555) 010-2000',
   '+15550102000',
   'United States',
@@ -72,7 +72,7 @@ values
 (
   'health-guarantee',
   'Our Mini Highland Cattle Health Guarantee',
-  E'Template health policy. Edit in Admin before publishing as binding terms.\n\n## Contact\nhello@minicowfarm.com',
+  E'Template health policy. Edit in Admin before publishing as binding terms.\n\n## Contact\nlynnjames09090@gmail.com',
   'Health Guarantee | Mini Cow Farm',
   'Configurable health policy for Mini Cow Farm.'
 ),

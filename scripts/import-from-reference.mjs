@@ -122,11 +122,11 @@ function parseStatus(raw) {
 function parseGender(raw, species) {
   const s = (raw || "").toLowerCase();
   if (species === "donkey") {
-    if (s.includes("jenny") || s.includes("female")) return "female";
-    if (s.includes("jack") || s.includes("male")) return "male";
+    if (/\b(jenny|female|she|her)\b/.test(s)) return "female";
+    if (/\b(jack|male|he|his|him)\b/.test(s)) return "male";
   }
-  if (s.includes("female") || s.includes("heifer")) return "female";
-  if (s.includes("male") || s.includes("bull")) return "male";
+  if (/\b(heifer|female|she|her)\b/.test(s)) return "female";
+  if (/\b(bull|male|he|his|him)\b/.test(s)) return "male";
   return "unknown";
 }
 
@@ -154,7 +154,7 @@ async function fetchHtml(url) {
   const res = await fetch(url, {
     headers: {
       "User-Agent":
-        "MiniCowFarmImporter/1.0 (+local rebuild; contact hello@minicowfarm.com)",
+        "MiniCowFarmImporter/1.0 (+local rebuild; contact lynnjames09090@gmail.com)",
       Accept: "text/html",
     },
   });
@@ -501,7 +501,7 @@ async function ensureSiteBasics() {
   if (!count) {
     await supabase.from("site_settings").insert({
       business_name: "Mini Cow Farm",
-      email: "hello@minicowfarm.com",
+      email: "lynnjames09090@gmail.com",
       phone: "+1 (555) 010-2000",
       whatsapp: "+15550102000",
       location: "United States",
@@ -519,7 +519,7 @@ async function ensureSiteBasics() {
       body: `Template health policy imported as a starting point. Edit in Admin → Policies before treating as binding.
 
 ## Contact
-hello@minicowfarm.com`,
+lynnjames09090@gmail.com`,
     },
     {
       slug: "shipping-and-delivery-policy",
@@ -529,7 +529,7 @@ hello@minicowfarm.com`,
       body: `Template shipping policy. Edit service areas, fees, and timelines in Admin → Policies.
 
 ## Contact
-hello@minicowfarm.com`,
+lynnjames09090@gmail.com`,
     },
   ];
 

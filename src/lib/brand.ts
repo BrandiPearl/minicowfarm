@@ -6,7 +6,7 @@ export const brand = {
   name: "Mini Cow Farm",
   legalName: "Mini Cow Farm",
   tagline: "Miniature Highland Cattle for Homesteads & Small Farms",
-  email: "hello@minicowfarm.com",
+  email: "lynnjames09090@gmail.com",
   phone: "+1 (555) 010-2000",
   whatsapp: "+15550102000",
   location: "United States",
