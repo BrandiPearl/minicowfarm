@@ -72,21 +72,28 @@ async function sendWithResend(
   return { sent: true };
 }
 
-/** Zero-config fallback via FormSubmit (recipient confirms the first email). */
+/**
+ * FormSubmit treats each Origin as a separate form that must be activated.
+ * Production Workers would send a workers.dev / custom-domain Origin and get
+ * stuck on "needs Activation" again. Pin to the Origin that was already
+ * activated for this inbox so delivery works from Cloudflare too.
+ */
+const FORMSUBMIT_ACTIVATED_ORIGIN = "http://localhost:3000";
+
 async function sendWithFormSubmit(
   to: string,
   subject: string,
   payload: InquiryEmailPayload,
   text: string,
 ): Promise<{ sent: boolean; error?: string }> {
-  const site = brand.urls.site.replace(/\/$/, "") || "https://minicowfarm.com";
   const res = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(to)}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
-      Origin: site,
-      Referer: `${site}/contact-us`,
+      Origin: FORMSUBMIT_ACTIVATED_ORIGIN,
+      Referer: `${FORMSUBMIT_ACTIVATED_ORIGIN}/contact-us`,
+      "User-Agent": "Mozilla/5.0 MiniCowFarmNotifier/1.0",
     },
     body: JSON.stringify({
       name: payload.name,
@@ -96,6 +103,7 @@ async function sendWithFormSubmit(
       _subject: subject,
       _template: "table",
       _captcha: "false",
+      _replyto: payload.email,
     }),
   });
 
@@ -107,15 +115,14 @@ async function sendWithFormSubmit(
     parsed = {};
   }
 
-  // First submission asks the inbox owner to activate the form.
   if (String(parsed.success) === "false" && /activation/i.test(parsed.message || "")) {
     console.warn("[email] FormSubmit activation required for", to, parsed.message);
     return { sent: false, error: "FormSubmit activation required" };
   }
 
-  if (!res.ok || String(parsed.success) === "false") {
+  if (!res.ok || String(parsed.success) !== "true") {
     console.error("[email] FormSubmit failed:", res.status, body);
-    return { sent: false, error: `FormSubmit ${res.status}` };
+    return { sent: false, error: parsed.message || `FormSubmit ${res.status}` };
   }
 
   return { sent: true };
@@ -136,7 +143,9 @@ export async function sendInquiryNotification(
 
   try {
     if (process.env.EMAIL_API_KEY?.trim()) {
-      return await sendWithResend(to, subject, text, payload.email);
+      const result = await sendWithResend(to, subject, text, payload.email);
+      if (result.sent) return result;
+      console.warn("[email] Resend failed, falling back to FormSubmit:", result.error);
     }
 
     const result = await sendWithFormSubmit(to, subject, payload, text);
