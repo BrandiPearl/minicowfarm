@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import { brand } from "@/lib/brand";
 
 export type InquiryEmailPayload = {
@@ -16,6 +17,19 @@ function inquiryRecipient() {
     process.env.INQUIRY_EMAIL?.trim() ||
     brand.email
   );
+}
+
+function smtpUser() {
+  return (
+    process.env.SMTP_USER?.trim() ||
+    process.env.EMAIL_TO?.trim() ||
+    brand.email
+  );
+}
+
+function smtpPass() {
+  // Gmail app passwords are often pasted with spaces; strip them.
+  return (process.env.SMTP_PASS || "").replace(/\s+/g, "").trim();
 }
 
 function buildBody(payload: InquiryEmailPayload) {
@@ -73,10 +87,77 @@ async function sendWithResend(
 }
 
 /**
- * FormSubmit treats each Origin as a separate form that must be activated.
- * Production Workers would send a workers.dev / custom-domain Origin and get
- * stuck on "needs Activation" again. Pin to the Origin that was already
- * activated for this inbox so delivery works from Cloudflare too.
+ * Gmail SMTP via app password.
+ * Uses worker-mailer on Cloudflare (TCP sockets) and nodemailer locally.
+ */
+async function sendWithSmtp(
+  to: string,
+  subject: string,
+  text: string,
+  replyTo: string,
+): Promise<{ sent: boolean; error?: string }> {
+  const user = smtpUser();
+  const pass = smtpPass();
+  if (!pass) return { sent: false, error: "no smtp pass" };
+
+  const host = process.env.SMTP_HOST?.trim() || "smtp.gmail.com";
+  const port = Number(process.env.SMTP_PORT || 465);
+  const from =
+    process.env.EMAIL_FROM?.trim() || `Mini Cow Farm <${user}>`;
+
+  // Cloudflare Workers: nodemailer's Node sockets are unreliable; use worker-mailer.
+  try {
+    const { WorkerMailer } = await import("worker-mailer");
+    await WorkerMailer.send(
+      {
+        host,
+        port,
+        secure: port === 465,
+        credentials: { username: user, password: pass },
+        authType: "plain",
+      },
+      {
+        from,
+        to,
+        reply: replyTo,
+        subject,
+        text,
+      },
+    );
+    console.info("[email] inquiry emailed via SMTP (worker-mailer) to", to);
+    return { sent: true };
+  } catch (workerErr) {
+    console.warn("[email] worker-mailer failed, trying nodemailer:", workerErr);
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+    });
+
+    await transporter.sendMail({
+      from,
+      to,
+      replyTo,
+      subject,
+      text,
+    });
+    console.info("[email] inquiry emailed via SMTP (nodemailer) to", to);
+    return { sent: true };
+  } catch (error) {
+    console.error("[email] SMTP failed:", error);
+    return {
+      sent: false,
+      error: error instanceof Error ? error.message : "smtp error",
+    };
+  }
+}
+
+/**
+ * FormSubmit fallback (origin-pinned). Prefer SMTP when SMTP_PASS is set.
  */
 const FORMSUBMIT_ACTIVATED_ORIGIN = "http://localhost:3000";
 
@@ -130,7 +211,7 @@ async function sendWithFormSubmit(
 
 /**
  * Notify the farm inbox about a new inquiry.
- * Prefers Resend when EMAIL_API_KEY is set; otherwise uses FormSubmit.
+ * Order: Gmail SMTP → Resend → FormSubmit.
  */
 export async function sendInquiryNotification(
   payload: InquiryEmailPayload,
@@ -142,6 +223,12 @@ export async function sendInquiryNotification(
   const text = buildBody(payload);
 
   try {
+    if (smtpPass()) {
+      const result = await sendWithSmtp(to, subject, text, payload.email);
+      if (result.sent) return result;
+      console.warn("[email] SMTP failed, trying next provider:", result.error);
+    }
+
     if (process.env.EMAIL_API_KEY?.trim()) {
       const result = await sendWithResend(to, subject, text, payload.email);
       if (result.sent) return result;
