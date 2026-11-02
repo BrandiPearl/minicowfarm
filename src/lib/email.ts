@@ -86,10 +86,7 @@ async function sendWithResend(
   return { sent: true };
 }
 
-/**
- * Gmail SMTP via app password.
- * Uses worker-mailer on Cloudflare (TCP sockets) and nodemailer locally.
- */
+/** Gmail SMTP via app password (nodemailer; externalized from the webpack bundle). */
 async function sendWithSmtp(
   to: string,
   subject: string,
@@ -102,33 +99,7 @@ async function sendWithSmtp(
 
   const host = process.env.SMTP_HOST?.trim() || "smtp.gmail.com";
   const port = Number(process.env.SMTP_PORT || 465);
-  const from =
-    process.env.EMAIL_FROM?.trim() || `Mini Cow Farm <${user}>`;
-
-  // Cloudflare Workers: nodemailer's Node sockets are unreliable; use worker-mailer.
-  try {
-    const { WorkerMailer } = await import("worker-mailer");
-    await WorkerMailer.send(
-      {
-        host,
-        port,
-        secure: port === 465,
-        credentials: { username: user, password: pass },
-        authType: "plain",
-      },
-      {
-        from,
-        to,
-        reply: replyTo,
-        subject,
-        text,
-      },
-    );
-    console.info("[email] inquiry emailed via SMTP (worker-mailer) to", to);
-    return { sent: true };
-  } catch (workerErr) {
-    console.warn("[email] worker-mailer failed, trying nodemailer:", workerErr);
-  }
+  const from = process.env.EMAIL_FROM?.trim() || `Mini Cow Farm <${user}>`;
 
   try {
     const transporter = nodemailer.createTransport({
@@ -136,6 +107,9 @@ async function sendWithSmtp(
       port,
       secure: port === 465,
       auth: { user, pass },
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 20_000,
     });
 
     await transporter.sendMail({
@@ -145,7 +119,7 @@ async function sendWithSmtp(
       subject,
       text,
     });
-    console.info("[email] inquiry emailed via SMTP (nodemailer) to", to);
+    console.info("[email] inquiry emailed via SMTP to", to);
     return { sent: true };
   } catch (error) {
     console.error("[email] SMTP failed:", error);

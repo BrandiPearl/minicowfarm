@@ -47,9 +47,6 @@ importers:
       react-hook-form:
         specifier: ^7.65.0
         version: 7.91.0(@types/react@19.3.0)(react@19.1.0)
-      worker-mailer:
-        specifier: ^1.3.0
-        version: 1.3.0
       zod:
         specifier: ^4.1.12
         version: 4.6.7
@@ -3259,9 +3256,6 @@ packages:
   word-wrap@1.2.5:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
-
-  worker-mailer@1.3.0:
-    resolution: {integrity: sha512-VGbZC7mqOFq91cJOqphqVYX1Hk/Lf61sqLyByAwlG5QDtheiTaAJsfWQzxJewTmgxrrAecd1F9uStuIXBiLg8w==}
 
   workerd@1.20261023.1:
     resolution: {integrity: sha512-NeofJFyaYNpqKpFRJW3ApuonaerPd6/JWlfTtLDYf2A6ygqrDEFnYgEXmc0hhOxqnJsSM+kXJN6VebPojzRrsg==}
@@ -7033,8 +7027,6 @@ snapshots:
       isexe: 2.0.0
 
   word-wrap@1.2.5: {}
-
-  worker-mailer@1.3.0: {}
 
   workerd@1.20261023.1:
     optionalDependencies:
