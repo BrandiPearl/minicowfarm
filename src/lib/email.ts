@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { brand } from "@/lib/brand";
+import { sendMailViaCloudflareSockets } from "@/lib/smtp-cloudflare";
 
 export type InquiryEmailPayload = {
   name: string;
@@ -86,7 +87,7 @@ async function sendWithResend(
   return { sent: true };
 }
 
-/** Gmail SMTP via app password (nodemailer; externalized from the webpack bundle). */
+/** Gmail SMTP via app password. Workers use cloudflare:sockets; Node uses nodemailer. */
 async function sendWithSmtp(
   to: string,
   subject: string,
@@ -100,6 +101,25 @@ async function sendWithSmtp(
   const host = process.env.SMTP_HOST?.trim() || "smtp.gmail.com";
   const port = Number(process.env.SMTP_PORT || 465);
   const from = process.env.EMAIL_FROM?.trim() || `Mini Cow Farm <${user}>`;
+
+  // Cloudflare Workers cannot use nodemailer's Node TCP stack — use sockets API.
+  try {
+    await sendMailViaCloudflareSockets({
+      host,
+      port,
+      user,
+      pass,
+      from,
+      to,
+      replyTo,
+      subject,
+      text,
+    });
+    console.info("[email] inquiry emailed via SMTP (cloudflare sockets) to", to);
+    return { sent: true };
+  } catch (workerErr) {
+    console.warn("[email] cloudflare SMTP path failed, trying nodemailer:", workerErr);
+  }
 
   try {
     const transporter = nodemailer.createTransport({
@@ -119,7 +139,7 @@ async function sendWithSmtp(
       subject,
       text,
     });
-    console.info("[email] inquiry emailed via SMTP to", to);
+    console.info("[email] inquiry emailed via SMTP (nodemailer) to", to);
     return { sent: true };
   } catch (error) {
     console.error("[email] SMTP failed:", error);
