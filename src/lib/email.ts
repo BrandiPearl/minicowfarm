@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { brand } from "@/lib/brand";
+import { runtimeEnv } from "@/lib/runtime-env";
 import { sendMailViaCloudflareSockets } from "@/lib/smtp-cloudflare";
 
 export type InquiryEmailPayload = {
@@ -14,23 +15,23 @@ export type InquiryEmailPayload = {
 
 function inquiryRecipient() {
   return (
-    process.env.EMAIL_TO?.trim() ||
-    process.env.INQUIRY_EMAIL?.trim() ||
+    runtimeEnv("EMAIL_TO").trim() ||
+    runtimeEnv("INQUIRY_EMAIL").trim() ||
     brand.email
   );
 }
 
 function smtpUser() {
   return (
-    process.env.SMTP_USER?.trim() ||
-    process.env.EMAIL_TO?.trim() ||
+    runtimeEnv("SMTP_USER").trim() ||
+    runtimeEnv("EMAIL_TO").trim() ||
     brand.email
   );
 }
 
 function smtpPass() {
   // Gmail app passwords are often pasted with spaces; strip them.
-  return (process.env.SMTP_PASS || "").replace(/\s+/g, "").trim();
+  return runtimeEnv("SMTP_PASS").replace(/\s+/g, "").trim();
 }
 
 function buildBody(payload: InquiryEmailPayload) {
@@ -57,11 +58,11 @@ async function sendWithResend(
   text: string,
   replyTo: string,
 ): Promise<{ sent: boolean; error?: string }> {
-  const apiKey = process.env.EMAIL_API_KEY?.trim();
+  const apiKey = runtimeEnv("EMAIL_API_KEY").trim();
   if (!apiKey) return { sent: false, error: "no api key" };
 
   const from =
-    process.env.EMAIL_FROM?.trim() || "Mini Cow Farm <onboarding@resend.dev>";
+    runtimeEnv("EMAIL_FROM").trim() || "Mini Cow Farm <onboarding@resend.dev>";
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -98,9 +99,9 @@ async function sendWithSmtp(
   const pass = smtpPass();
   if (!pass) return { sent: false, error: "no smtp pass" };
 
-  const host = process.env.SMTP_HOST?.trim() || "smtp.gmail.com";
-  const port = Number(process.env.SMTP_PORT || 465);
-  const from = process.env.EMAIL_FROM?.trim() || `Mini Cow Farm <${user}>`;
+  const host = runtimeEnv("SMTP_HOST").trim() || "smtp.gmail.com";
+  const port = Number(runtimeEnv("SMTP_PORT") || 465);
+  const from = runtimeEnv("EMAIL_FROM").trim() || `Mini Cow Farm <${user}>`;
 
   // Cloudflare Workers cannot use nodemailer's Node TCP stack — use sockets API.
   try {
@@ -228,7 +229,7 @@ export async function sendInquiryNotification(
 
     console.warn("[email] SMTP_PASS is not set in this runtime");
 
-    if (process.env.EMAIL_API_KEY?.trim()) {
+    if (runtimeEnv("EMAIL_API_KEY").trim()) {
       const result = await sendWithResend(to, subject, text, payload.email);
       if (result.sent) return { ...result, via: "resend", smtpConfigured };
       console.warn("[email] Resend failed, falling back to FormSubmit:", result.error);
