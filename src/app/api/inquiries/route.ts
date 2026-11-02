@@ -1,5 +1,4 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { inquirySchema } from "@/lib/validations/inquiry";
 import { createClient } from "@/lib/supabase/server";
@@ -88,10 +87,8 @@ export async function POST(request: Request) {
     animalName = demoAnimals.find((a) => a.id === payload.animal_id)?.name ?? null;
   }
 
-  function queueInBackground() {
-    // Don't block the HTTP response on FormSubmit/Resend — that was causing
-    // client timeouts that showed "Network error" even after a successful save.
-    const task = sendInquiryNotification({
+  async function notify() {
+    return sendInquiryNotification({
       name: payload.name,
       email: payload.email,
       phone: payload.phone,
@@ -99,18 +96,7 @@ export async function POST(request: Request) {
       source: payload.source,
       animalId: payload.animal_id,
       animalName,
-    }).catch((error) => {
-      console.error("[email] background notify failed:", error);
     });
-
-    try {
-      // Prefer Worker waitUntil so email finishes after the response on Cloudflare.
-      getCloudflareContext().ctx.waitUntil(task);
-      return;
-    } catch {
-      // Local Next.js / Node: after() keeps the work alive past the response.
-      after(() => task);
-    }
   }
 
   if (!isSupabaseConfigured()) {
@@ -126,9 +112,10 @@ export async function POST(request: Request) {
       email: payload.email,
       animal_id: payload.animal_id,
     });
-    queueInBackground();
+    const email = await notify();
     return NextResponse.json({
       ok: true,
+      email,
       message:
         "Thanks, we received your inquiry. (Demo mode: not saved to a database until Supabase is configured.)",
     });
@@ -145,10 +132,16 @@ export async function POST(request: Request) {
       );
     }
 
-    queueInBackground();
+    // Await SMTP so delivery errors surface in the response / Worker logs.
+    // Gmail SMTP is typically <2s; the old FormSubmit hangs were the timeout risk.
+    const email = await notify();
+    if (!email.sent) {
+      console.error("[email] inquiry saved but notify failed:", email.error);
+    }
 
     return NextResponse.json({
       ok: true,
+      email,
       message: "Thanks, we received your inquiry and will respond soon.",
     });
   } catch (error) {

@@ -217,6 +217,10 @@ export async function sendInquiryNotification(
   const text = buildBody(payload);
 
   try {
+    if (!smtpPass()) {
+      console.warn("[email] SMTP_PASS is not set in this runtime");
+    }
+
     if (smtpPass()) {
       const result = await sendWithSmtp(to, subject, text, payload.email);
       if (result.sent) return result;
