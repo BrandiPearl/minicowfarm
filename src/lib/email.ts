@@ -205,31 +205,32 @@ async function sendWithFormSubmit(
 
 /**
  * Notify the farm inbox about a new inquiry.
- * Order: Gmail SMTP → Resend → FormSubmit.
+ * Prefer Gmail SMTP when SMTP_PASS is set (no FormSubmit fallback — it rate-limits
+ * and hides the real SMTP error on Cloudflare).
  */
 export async function sendInquiryNotification(
   payload: InquiryEmailPayload,
-): Promise<{ sent: boolean; error?: string }> {
+): Promise<{ sent: boolean; error?: string; via?: string; smtpConfigured?: boolean }> {
   const to = inquiryRecipient();
   const subject = payload.animalName
     ? `Inquiry about ${payload.animalName} from ${payload.name}`
     : `New website inquiry from ${payload.name}`;
   const text = buildBody(payload);
+  const smtpConfigured = Boolean(smtpPass());
 
   try {
-    if (!smtpPass()) {
-      console.warn("[email] SMTP_PASS is not set in this runtime");
+    if (smtpConfigured) {
+      const result = await sendWithSmtp(to, subject, text, payload.email);
+      if (result.sent) return { ...result, via: "smtp", smtpConfigured };
+      console.error("[email] SMTP failed:", result.error);
+      return { ...result, via: "smtp", smtpConfigured };
     }
 
-    if (smtpPass()) {
-      const result = await sendWithSmtp(to, subject, text, payload.email);
-      if (result.sent) return result;
-      console.warn("[email] SMTP failed, trying next provider:", result.error);
-    }
+    console.warn("[email] SMTP_PASS is not set in this runtime");
 
     if (process.env.EMAIL_API_KEY?.trim()) {
       const result = await sendWithResend(to, subject, text, payload.email);
-      if (result.sent) return result;
+      if (result.sent) return { ...result, via: "resend", smtpConfigured };
       console.warn("[email] Resend failed, falling back to FormSubmit:", result.error);
     }
 
@@ -237,10 +238,14 @@ export async function sendInquiryNotification(
     if (result.sent) {
       console.info("[email] inquiry emailed via FormSubmit to", to);
     }
-    return result;
+    return { ...result, via: "formsubmit", smtpConfigured };
   } catch (error) {
     console.error("[email] send failed:", error);
     console.info("[email] inquiry preview:\n", text);
-    return { sent: false, error: "network error" };
+    return {
+      sent: false,
+      error: error instanceof Error ? error.message : "network error",
+      smtpConfigured,
+    };
   }
 }
