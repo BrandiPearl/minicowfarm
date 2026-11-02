@@ -99,7 +99,8 @@ export async function sendInquiryNotification(
     ? `Inquiry about ${payload.animalName} from ${payload.name}`
     : `New website inquiry from ${payload.name}`;
   const text = buildBody(payload);
-  const resendConfigured = Boolean(runtimeEnv("EMAIL_API_KEY").trim());
+  const apiKey = runtimeEnv("EMAIL_API_KEY");
+  const resendConfigured = apiKey.length > 0;
 
   try {
     if (!resendConfigured) {
