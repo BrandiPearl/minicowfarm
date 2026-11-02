@@ -152,7 +152,47 @@ async function sendWithSmtp(
 }
 
 /**
- * FormSubmit fallback (origin-pinned). Prefer SMTP when SMTP_PASS is set.
+ * Gmail Apps Script web app relay.
+ * Cloudflare Workers block outbound Gmail SMTP; HTTPS fetch works.
+ * See scripts/gmail-apps-script.gs
+ */
+async function sendWithGmailWebhook(
+  to: string,
+  subject: string,
+  text: string,
+  replyTo: string,
+): Promise<{ sent: boolean; error?: string }> {
+  const url = runtimeEnv("GMAIL_WEBHOOK_URL").trim();
+  const secret = runtimeEnv("GMAIL_WEBHOOK_SECRET").trim();
+  if (!url) return { sent: false, error: "no gmail webhook" };
+  if (!secret) return { sent: false, error: "no gmail webhook secret" };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret, to, subject, text, replyTo }),
+    redirect: "follow",
+  });
+
+  const body = await res.text();
+  let parsed: { ok?: boolean; error?: string } = {};
+  try {
+    parsed = JSON.parse(body) as typeof parsed;
+  } catch {
+    parsed = {};
+  }
+
+  if (!res.ok || parsed.ok !== true) {
+    console.error("[email] Gmail webhook failed:", res.status, body);
+    return { sent: false, error: parsed.error || `webhook ${res.status}` };
+  }
+
+  console.info("[email] inquiry emailed via Gmail webhook to", to);
+  return { sent: true };
+}
+
+/**
+ * FormSubmit fallback (origin-pinned).
  */
 const FORMSUBMIT_ACTIVATED_ORIGIN = "http://localhost:3000";
 
@@ -206,40 +246,57 @@ async function sendWithFormSubmit(
 
 /**
  * Notify the farm inbox about a new inquiry.
- * Prefer Gmail SMTP when SMTP_PASS is set (no FormSubmit fallback — it rate-limits
- * and hides the real SMTP error on Cloudflare).
+ * Order: Gmail Apps Script webhook → Resend → SMTP (local only) → FormSubmit.
+ * Note: Cloudflare Workers cannot open Gmail SMTP sockets.
  */
 export async function sendInquiryNotification(
   payload: InquiryEmailPayload,
-): Promise<{ sent: boolean; error?: string; via?: string; smtpConfigured?: boolean }> {
+): Promise<{
+  sent: boolean;
+  error?: string;
+  via?: string;
+  smtpConfigured?: boolean;
+  webhookConfigured?: boolean;
+}> {
   const to = inquiryRecipient();
   const subject = payload.animalName
     ? `Inquiry about ${payload.animalName} from ${payload.name}`
     : `New website inquiry from ${payload.name}`;
   const text = buildBody(payload);
   const smtpConfigured = Boolean(smtpPass());
+  const webhookConfigured = Boolean(runtimeEnv("GMAIL_WEBHOOK_URL").trim());
 
   try {
-    if (smtpConfigured) {
-      const result = await sendWithSmtp(to, subject, text, payload.email);
-      if (result.sent) return { ...result, via: "smtp", smtpConfigured };
-      console.error("[email] SMTP failed:", result.error);
-      return { ...result, via: "smtp", smtpConfigured };
+    if (webhookConfigured) {
+      const result = await sendWithGmailWebhook(to, subject, text, payload.email);
+      if (result.sent) {
+        return { ...result, via: "gmail-webhook", smtpConfigured, webhookConfigured };
+      }
+      console.error("[email] Gmail webhook failed:", result.error);
+      return { ...result, via: "gmail-webhook", smtpConfigured, webhookConfigured };
     }
-
-    console.warn("[email] SMTP_PASS is not set in this runtime");
 
     if (runtimeEnv("EMAIL_API_KEY").trim()) {
       const result = await sendWithResend(to, subject, text, payload.email);
-      if (result.sent) return { ...result, via: "resend", smtpConfigured };
-      console.warn("[email] Resend failed, falling back to FormSubmit:", result.error);
+      if (result.sent) return { ...result, via: "resend", smtpConfigured, webhookConfigured };
+      console.warn("[email] Resend failed:", result.error);
+    }
+
+    if (smtpConfigured) {
+      const result = await sendWithSmtp(to, subject, text, payload.email);
+      if (result.sent) return { ...result, via: "smtp", smtpConfigured, webhookConfigured };
+      console.error(
+        "[email] SMTP failed (expected on Cloudflare Workers — use GMAIL_WEBHOOK_URL):",
+        result.error,
+      );
+      return { ...result, via: "smtp", smtpConfigured, webhookConfigured };
     }
 
     const result = await sendWithFormSubmit(to, subject, payload, text);
     if (result.sent) {
       console.info("[email] inquiry emailed via FormSubmit to", to);
     }
-    return { ...result, via: "formsubmit", smtpConfigured };
+    return { ...result, via: "formsubmit", smtpConfigured, webhookConfigured };
   } catch (error) {
     console.error("[email] send failed:", error);
     console.info("[email] inquiry preview:\n", text);
@@ -247,6 +304,7 @@ export async function sendInquiryNotification(
       sent: false,
       error: error instanceof Error ? error.message : "network error",
       smtpConfigured,
+      webhookConfigured,
     };
   }
 }
