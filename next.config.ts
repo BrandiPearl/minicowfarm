@@ -1,8 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Keep nodemailer out of the webpack graph (uses Node net/tls at runtime).
-  serverExternalPackages: ["nodemailer"],
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "images.unsplash.com" },
